@@ -1,3 +1,10 @@
+target/
+.env
+*.class
+
+# Local data copy (user copies from ai/data/)
+data/*.json
+!data/README.md
 
 .env
 .env.*
