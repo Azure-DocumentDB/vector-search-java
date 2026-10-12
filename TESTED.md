@@ -1,28 +1,29 @@
-# Verification record — 2026-10-12
+# Validation record — 2026-10-12
 
-## Local evidence only; cloud pending
+## Managed Azure result
 
-Validated on macOS 27.0.1 arm64, Eclipse Temurin **21.0.12.1+1**, Maven **3.9.9**, Python **3.14.7**. Java/Maven reused an existing task-local toolchain/cache; no global installs or runtime/config changes. This record describes the accompanying source revision, not the original upstream implementation.
+**6/6 algorithm/authentication cases passed** on a disposable managed Azure DocumentDB M30 in West US2, one shard, MongoDB8.0 compatibility,128GiB storage and high availability disabled. The matrix is IVF/HNSW/DiskANN × COS, repeated under native SCRAM-SHA-256 and Microsoft Entra OIDC with verified TLS and a client-IP firewall.
 
-- `mvn -B -ntp clean verify dependency:tree -DoutputType=json -DoutputFile=target/dependencies.json dependency:build-classpath -Dmdep.outputFile=target/classpath.txt`: **PASS**, **33 JUnit tests**, zero failures/errors/skips.
-- `python3 scripts/test_tools.py`: **PASS**, **7 offline helper tests** covering hash/dimension/overwrite checks, malformed/incomplete/empty OSV responses and advisory failures, independent result-gate failure cases. Publication-review regressions explicitly check per-result service errors/status/unknown fields, falsey malformed vulnerability fields, pagination, missing/malformed advisory IDs and sanitized exit 2 with no clean report. Legitimate `{}`/empty lists remain exit 0; valid advisories remain exit 1.
-- `python3 scripts/audit_dependencies.py target/dependencies.json`: **PASS**, **41 resolved Maven coordinates**, **0 OSV findings** at check time. Includes test dependencies. Does not certify shaded contents or Maven plugins.
-- Explicit `mvn -B -ntp verify -Pintegration` **without** `RUN_AZURE_INTEGRATION=true`: expected **FAIL, exit 1**, at consent assertion before any cloud connection. Missing consent is not a skipped success. Repeating with consent/rank verification enabled but no target environment also fails exit 1 before connection.
-- Real pinned 50×1536 fixture extractor: **PASS**, output is the first hotel's stored vector. Reusing the output path: expected **FAIL, exit 1**, original output preserved.
-- Direct Java `Main`, `IVF`, `HNSW`, `DiskAnn` invalid-host tests: **exit 2** each, no credential/invalid endpoint leaked and no database connection attempted.
-- Gitleaks working-directory scan: **0 leaks**. `git diff --check`: **PASS**. SHA-pinned GitHub build/test/audit workflow has read-only permissions and no live-resource step; hosted CI has not yet run for this revision.
+Tested implementation: `385f024e24bf647b19c8589ed2f11e84263c48ca`. The later commit containing this record changes only documentation.
 
-## Permanent test coverage
+The fixture contains50pinned public hotel records with1536-dimensional precomputed vectors; the query is the first stored vector. Actual index definitions were checked. Every case returned five results checked against a numeric reference appropriate to its metric; raw scores from different metrics are not comparable. This is not a semantic-quality, latency/throughput, production-size ANN or service-tier support benchmark.
 
-- Native credential special characters, `admin` SCRAM-SHA-256 source, strict TLS/hostname and Azure host allowlist; consent/reserved database/unsafe name/bounds/auth validation before client construction.
-- OIDC fixed scope, ignored server audience, positive lifetime with safety margin, expired/absent/timed-out token refusal. WireMock exercises HTTP token-response/expiry/redirect-refusal through a test credential adapter; **this is not live Azure Identity authentication**.
-- Full catalog conflicts, including unrelated partial/sparse/unique/TTL/hidden indexes; conflicting expected name/key/options and duplicate definitions. Authorization error before insert/index writes; namespace-not-found is the only tolerated catalog error.
-- Insert-only reruns preserve unrelated counts, refuse changed fixture content before writes, create missing indexes on populated collections, and surface partial insertion/count failures. No drops/deletes are called.
-- All-mode first and middle failure continue through three cases then fail aggregate; single-algorithm selection, bounded retries/monotonic deadline, empty/duplicate/missing/nonfinite score refusal, known cosine rankings/scores/self-match.
-- Real Mongo driver bounded loopback failure subprocess terminates without `System.exit` masking resource leaks; explicit Mongo/HTTP/credential executor close, failure-path cleanup and interrupt-preserving shutdown tests.
+Actual command-line execution and repeat runs were checked, not merely client construction. Repeated seeding inserted zero duplicates. An unrelated sentinel survived in every exercised collection. Existing user edits were preserved by insert-only seeding or safely refused as a fixture conflict; no test path dropped/reset/replaced existing data or indexes.
 
-## Not validated / release boundary
+Each CLI also rejected disabled write consent, a system database target, a foreign host and an incorrect native password with a nonzero exit and without printing credentials. No model calls or Azure OpenAI account were required.
 
-**No Azure provisioning, DB access, native/OIDC live run, DiskANN service run, cloud cleanup, repository push, PR, merge or visibility change was performed for this revision in this local task.** Those are owner-controlled follow-up gates. Run the exact committed CLI and integration profile with native and OIDC on distinct approved prefixes, then run `scripts/verify_results.py`; record resource tier/region, exact SHA, exit codes, ranking and insert-only rerun/conflict preservation evidence before claiming live readiness.
+## Conflict and process-completion proof
 
-No LLM/OpenAI path remains. No natural-language quality, broad ANN recall/latency/scale, concurrent-writer safety, sovereign-cloud or server-driven proactive OIDC refresh claim is made. Resources are deliberately retained after all outcomes; cleanup is a separate owner action.
+Standalone native and OIDC processes completed naturally and their top-five IDs/scores matched an independent cosine reference. A deliberate edit to the first fixture record was preserved: the affected case failed at preparation, the remaining two algorithms still passed, all three were attempted and the process exited1. This is explicit conflict refusal, not an automatic edit merge.
+
+## Local checks
+
+Temurin21.0.12.1+1 and Maven3.9.9.33 JUnit tests and7helper tests pass, no failures/skips. OSV audit41resolved Maven coordinates reports zero findings; per-result service errors and malformed/incomplete responses fail closed. Direct entrypoints reject unsafe config and terminate.
+
+Full repository history and tracked publication files were scanned for secrets with no matches. MIT licensing and pinned upstream provenance remain. Scans are point-in-time findings, not a guarantee of absolute security. CI uses pinned GitHub-owned actions, read-only permissions and no cloud credentials or deployment steps.
+
+## Scope and cleanup
+
+This repository supports precomputed database/vector workflows only; live embedding/model generation was removed rather than falsely advertised as tested. The available subscription's model-service eligibility is not needed by the quickstart. No model-backed end-to-end, high availability, backup recovery, production capacity or broader cloud support is claimed.
+
+Testing used isolated disposable namespaces, not existing customer data. Environment owners are responsible for deliberately removing their test resources; the sample never automatically deletes databases/collections/indexes. The release operator verifies deletion of the shared test resource group and hosted CI before publication. No credentials, subscription identifiers or private infrastructure details are included here.
