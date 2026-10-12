@@ -26,7 +26,7 @@ mvn -B -ntp dependency:tree -DoutputType=json -DoutputFile=target/dependencies.j
 python3 scripts/audit_dependencies.py target/dependencies.json
 ```
 
-Default tests use JUnit/Mockito, an HTTP WireMock contract, synthetic fixture data and bounded loopback failure subprocesses. **No default test connects to Azure.** The resolved dependency audit queries public Maven coordinates against OSV, including test dependencies; findings fail exit 1, service/malformed/empty-tree errors fail exit 2. It does not scan shaded vendored contents, Maven plugins or all possible future advisories. CI has read-only permissions, SHA-pinned actions, no cloud secrets and no deployment/live gate.
+Default tests use JUnit/Mockito, an HTTP WireMock contract, synthetic fixture data and bounded loopback failure subprocesses. **No default test connects to Azure.** The resolved dependency audit queries public Maven coordinates against OSV, including test dependencies; findings fail exit 1, service/malformed/empty-tree errors fail exit 2. It validates the response envelope and each result, rejects service/error/status fields and malformed advisory IDs/types, and accepts OSV's legitimate `{}` no-findings result. Nonempty pagination tokens fail as incomplete (this helper does not silently omit later pages). It does not scan shaded vendored contents, Maven plugins or all possible future advisories. CI has read-only permissions, SHA-pinned actions, no cloud secrets and no deployment/live gate.
 
 ## 2. Retrieve the pinned fixture and extract a query
 

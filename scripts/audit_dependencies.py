@@ -26,6 +26,42 @@ def post(payload):
     raise RuntimeError("OSV unavailable")
 
 
+def validate_results(response, expected_count):
+    """OSV querybatch returns {} for a clean package; errors are never clean.
+
+    Pagination is deliberately unsupported: any nonempty continuation token means
+    the audit is incomplete, so fail rather than silently omitting advisories.
+    """
+    if not isinstance(response, dict) or set(response) != {"results"}:
+        raise RuntimeError("invalid OSV response envelope")
+    results = response["results"]
+    if not isinstance(results, list) or len(results) != expected_count:
+        raise RuntimeError("incomplete OSV response")
+    for result in results:
+        if not isinstance(result, dict) or not set(result).issubset({"vulns", "next_page_token"}):
+            raise RuntimeError("invalid or error-bearing OSV result")
+        if "next_page_token" in result:
+            token = result["next_page_token"]
+            if not isinstance(token, str) or token:
+                raise RuntimeError("invalid or incomplete paginated OSV result")
+        vulns = result.get("vulns", [])
+        if not isinstance(vulns, list):
+            raise RuntimeError("invalid OSV vulnerability list")
+        for vulnerability in vulns:
+            if not isinstance(vulnerability, dict):
+                raise RuntimeError("invalid OSV vulnerability")
+            advisory_id = vulnerability.get("id")
+            if (not isinstance(advisory_id, str) or not advisory_id
+                    or any(c.isspace() or ord(c) < 32 for c in advisory_id)):
+                raise RuntimeError("missing or invalid OSV advisory ID")
+            if "error" in vulnerability or "status" in vulnerability:
+                raise RuntimeError("error-bearing OSV vulnerability")
+            if "modified" in vulnerability and (not isinstance(vulnerability["modified"], str)
+                                                or not vulnerability["modified"].strip()):
+                raise RuntimeError("invalid OSV advisory modification value")
+    return results
+
+
 def main():
     with open(sys.argv[1], encoding="utf-8") as source:
         tree = json.load(source)
@@ -42,9 +78,7 @@ def main():
     packages = sorted(coordinates)
     queries = [{"package": {"ecosystem": "Maven", "name": name}, "version": version}
                for name, version in packages]
-    results = post({"queries": queries})["results"]
-    if not isinstance(results, list) or len(results) != len(packages) or any(not isinstance(r, dict) for r in results):
-        raise RuntimeError("incomplete OSV response")
+    results = validate_results(post({"queries": queries}), len(packages))
     findings = []
     for (name, version), result in zip(packages, results):
         if result.get("vulns"):
@@ -54,9 +88,13 @@ def main():
     return 1 if findings else 0
 
 
-if __name__ == "__main__":
+def cli():
     try:
-        sys.exit(main())
+        return main()
     except Exception:
         print("Dependency audit unavailable or invalid; failing closed.", file=sys.stderr)
-        sys.exit(2)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

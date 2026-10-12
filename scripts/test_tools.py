@@ -61,6 +61,63 @@ class ToolTests(unittest.TestCase):
                 with patch.object(audit, "post", return_value={"results": [{}]}):
                     self.assertEqual(0, audit.main())
 
+    def audit_cli(self, response):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)/"tree.json"
+            tree.write_text(json.dumps({"children": [{"groupId": "public", "artifactId": "package", "version": "1"}]}))
+            out, err = io.StringIO(), io.StringIO()
+            with patch.object(sys, "argv", ["tool", str(tree)]), patch.object(audit, "post", return_value=response), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                status = audit.cli()
+            return status, out.getvalue(), err.getvalue()
+
+    def assert_audit_unavailable(self, response):
+        status, out, err = self.audit_cli(response)
+        self.assertEqual(2, status)
+        self.assertEqual("", out, "Malformed responses must never print a clean report")
+        self.assertIn("failing closed", err)
+        self.assertNotIn("PRIVATE-service-message", err)
+
+    def test_audit_error_or_unknown_response_fields_fail_exit_two(self):
+        for response in [None, [], {}, {"results": [{}], "error": "unavailable"},
+                         {"results": [{}], "status": 503}, {"results": [{}], "unexpected": False}]:
+            with self.subTest(response=response):
+                self.assert_audit_unavailable(response)
+        for result in [{"error": {"code": 503, "message": "PRIVATE-service-message"}},
+                       {"error": None}, {"error": False}, {"status": 503},
+                       {"status": "ok"}, {"unexpected": False},
+                       {"vulns": [], "error": "unavailable"}]:
+            with self.subTest(result=result):
+                self.assert_audit_unavailable({"results": [result]})
+
+    def test_audit_falsey_wrong_types_and_pagination_fail_exit_two(self):
+        for value in [None, False, 0, "", {}, "bad"]:
+            with self.subTest(vulns=value):
+                self.assert_audit_unavailable({"results": [{"vulns": value}]})
+        for value in [None, False, 0, [], {}, "next-page", " "]:
+            with self.subTest(token=value):
+                self.assert_audit_unavailable({"results": [{"next_page_token": value}]})
+
+    def test_audit_incomplete_or_malformed_advisory_ids_fail_exit_two(self):
+        for vulnerability in [None, False, [], "GHSA-test", {}, {"modified": "2026-10-12T00:00:00Z"},
+                              *({"id": value} for value in [None, False, 123, [], {}, "", " ", "GHSA test", "GHSA-test\n"]),
+                              {"id": "GHSA-test", "error": None}, {"id": "GHSA-test", "status": "error"},
+                              {"id": "GHSA-test", "modified": False}]:
+            with self.subTest(vulnerability=vulnerability):
+                self.assert_audit_unavailable({"results": [{"vulns": [vulnerability]}]})
+
+    def test_audit_preserves_normal_empty_results_and_real_advisories(self):
+        for result in [{}, {"vulns": []}, {"next_page_token": ""}, {"vulns": [], "next_page_token": ""}]:
+            with self.subTest(result=result):
+                status, out, err = self.audit_cli({"results": [result]})
+                self.assertEqual(0, status)
+                self.assertEqual([], json.loads(out)["findings"])
+                self.assertEqual("", err)
+        status, out, err = self.audit_cli({"results": [{"vulns": [
+            {"id": "GHSA-test-advisory", "modified": "2026-10-12T00:00:00Z"}, {"id": "CVE-2026-12345"}]}]})
+        self.assertEqual(1, status)
+        self.assertEqual(["GHSA-test-advisory", "CVE-2026-12345"], json.loads(out)["findings"][0]["advisories"])
+        self.assertEqual("", err)
+
     def test_result_gate_rejects_missing_cases_unknown_hits_and_wrong_ranks(self):
         vectors = [[1.0, 0.0]+[0.0]*1534, [0.8, 0.6]+[0.0]*1534]
         docs = [{"HotelId": str(i), "DescriptionVector": vectors[0] if i == 0 else vectors[1]} for i in range(50)]
